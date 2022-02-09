@@ -338,7 +338,7 @@ async function compileVersion(
 			paths: {
 				assets: join(dir, 'assets'),
 				libraries: join(dir, 'libraries'),
-				natives: join(dir, 'bin/natives', json.id),
+				natives: 'natives',
 				runtime: join(dir, 'runtime'),
 				resources: index.map_to_resources
 					? join(dir, 'resources')
@@ -529,11 +529,6 @@ export async function* install(version: Version) {
 			$.tasks.fetch.completed += x.size;
 		}
 
-		// TODO: replace with a TypeScript-enforceable flag, not this hidden one.
-		if ('natives' in x) {
-			await unzip(x.path, version.paths.natives, { xlist: ['META-INF/'] });
-		}
-
 		$.tasks.bytes.completed += x.size;
 		$.tasks.files.completed += 1;
 		$.active--;
@@ -592,6 +587,10 @@ export async function play(
 		for (const [name, { path }] of version.assets.objects) {
 			await ensureLink(path, join(version.paths.resources, name));
 		}
+	}
+
+	for (const lib of version.jars.filter((x) => x.natives)) {
+		await unzip(lib.path, version.paths.natives, { xlist: ['META-INF/'] });
 	}
 
 	const icns = version.assets.objects.get('icons/minecraft.icns')!.path;
