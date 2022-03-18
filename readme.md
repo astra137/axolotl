@@ -41,8 +41,4 @@ Libraries and assets are shared with the official launcher (best effort).
 
 ## Security
 
-### [CVE-2021-44228](https://nvd.nist.gov/vuln/detail/CVE-2021-44228)
-
-CVE-2021-44228 is mitigated upstream. This project uses the log4j version and configuration that Mojang distributes via launchermeta.mojang.com.
-
-If you play Minecraft with a custom launcher or run a server, you should go read http://redsto.ne/java if you don't like data loss, ransomware, or being doxxed.
+[CVE-2021-44228](https://nvd.nist.gov/vuln/detail/CVE-2021-44228) is mitigated upstream. This project uses the log4j version and configuration that Mojang distributes via launchermeta.mojang.com. Read Mojang's guidance at http://redsto.ne/java for more information.
