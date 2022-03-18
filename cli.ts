@@ -1,4 +1,4 @@
-import { install, InstallState, play, inspect } from './mod.ts';
+import { inspect, install, InstallState, play } from './mod.ts';
 import { createSession, resumeSession } from './auth/mod.ts';
 import { zuluInstall } from './java.ts';
 
@@ -45,14 +45,16 @@ try {
 
 	spinner.text = `Inspect ${Deno.cwd()}`;
 	spinner.start();
-	let info = await inspect(Deno.args[0], auth, profile);
+	// TODO: implement version override flag
+	let info = await inspect({}, auth, profile);
 	spinner.succeed();
 
 	// console.dir(info, { depth: 5 });
 
 	if (info.version.java.matches.length === 0) {
 		console.warn('No JVM found!');
-		const msg = `Download Java ${info.version.java.version} (Azul Zulu OpenJDK JRE bundle)?`;
+		const msg =
+			`Download Java ${info.version.java.version} (Azul Zulu OpenJDK JRE bundle)?`;
 		const ok = confirm(msg);
 		if (!ok) throw new Error('A JVM is required');
 		const { version } = info.version.java;
@@ -75,7 +77,8 @@ try {
 	spinner.start();
 	for await (const s of install(info.version)) {
 		state = s;
-		spinner.text = `${s.tasks.files.completed}/${s.tasks.files.total} files, ${s.tasks.bytes.completed}/${s.tasks.bytes.total} bytes, ${s.tasks.fetch.completed}/${s.tasks.fetch.total} fetched, ${s.active} active`;
+		spinner.text =
+			`${s.tasks.files.completed}/${s.tasks.files.total} files, ${s.tasks.bytes.completed}/${s.tasks.bytes.total} bytes, ${s.tasks.fetch.completed}/${s.tasks.fetch.total} fetched, ${s.active} active`;
 	}
 	spinner.succeed();
 

@@ -7,5 +7,8 @@
 	},
 	"deno.config": "./deno.json",
 	"deno.codeLens.implementations": true,
-	"deno.codeLens.references": true
+	"deno.codeLens.references": true,
+	"[typescript]": {
+		"editor.defaultFormatter": "denoland.vscode-deno"
+	}
 }

@@ -1,11 +1,11 @@
 // deno-lint-ignore-file camelcase
 import type {
+	Artifact,
 	AssetIndexJson,
 	Features,
-	VersionJson,
-	ManifestJson,
 	LibraryJson,
-	Artifact,
+	ManifestJson,
+	VersionJson,
 } from './types.d.ts';
 import { download, sha1sum } from './_fs.ts';
 import { unzip } from './_run.ts';
@@ -14,8 +14,11 @@ import { allowed } from './rules.ts';
 import { kunokazu } from './async.ts';
 import { AuthState, Profile } from './auth/mod.ts';
 
-import { join, parse, format } from 'https://deno.land/std/path/mod.ts';
+import { format, join, parse } from 'https://deno.land/std/path/mod.ts';
 import { ensureDir, ensureLink } from 'https://deno.land/std/fs/mod.ts';
+
+// TODO: use cache for manifest/json stuff
+import { cache, configure } from 'https://deno.land/x/cache/mod.ts';
 
 // import {} from 'https://deno.land/x/Thread@v3.0.0/Thread.ts';
 
@@ -112,30 +115,31 @@ async function readJson<T>(path: string): Promise<T> {
 	return JSON.parse(await Deno.readTextFile(path));
 }
 
-async function cacheManifest(dir: string, mustBeFresh: boolean) {
-	const path = pathManifest(dir);
-	// TODO: proper logic for this
-	if (!mustBeFresh) {
-		try {
-			return await readJson<ManifestJson>(path);
-		} catch (err) {
-			if (!(err instanceof Deno.errors.NotFound)) throw err;
-		}
-	}
-	await download(path, MANIFEST_URL);
-	return await readJson<ManifestJson>(path);
+async function cacheManifest(_mcdir: string) {
+	const cached = await cache(MANIFEST_URL, undefined, 'minecraft');
+	// TODO: Figure out whether/how to use cache with mcdir
+	// const path = pathManifest(mcdir);
+	// await Deno.remove(path).catch(() => {});
+	// await Deno.link(cached.path, path); // TODO: handle cross-filesystem
+	return await readJson<ManifestJson>(cached.path);
 }
 
-async function cacheVersion(dir: string, id: string) {
-	const path = pathVersion(dir, id);
+async function resolveVersion(mcdir: string, id: string) {
 	try {
+		// First: look for matching version in mcdir
+		const path = pathVersion(mcdir, id);
 		return await readJson<VersionJson>(path);
 	} catch (err) {
 		if (!(err instanceof Deno.errors.NotFound)) throw err;
 	}
-	const manifest = await cacheManifest(dir, true);
+
+	// Second: search for the version in the manifest
+	const manifest = await cacheManifest(mcdir);
+	if (id === 'release') id = manifest.latest.release;
+	if (id === 'snapshot') id = manifest.latest.snapshot;
 	const versmeta = manifest.versions.find((x) => x.id === id);
-	if (!versmeta) throw new Error(`version "${id}" cannot be found`);
+	if (!versmeta) throw new Error(`cannot resolve version "${id}"`);
+	const path = pathVersion(mcdir, versmeta.id);
 	await download(path, versmeta.url);
 	await sha1sum(path, versmeta.sha1);
 	return await readJson<VersionJson>(path);
@@ -144,7 +148,7 @@ async function cacheVersion(dir: string, id: string) {
 async function cacheAssetIndex(
 	dir: string,
 	id: string,
-	meta: { url: string; sha1: string; size: number }
+	meta: { url: string; sha1: string; size: number },
 ) {
 	const path = pathAssetIndex(dir, id);
 	try {
@@ -196,17 +200,18 @@ async function compileVersion(
 	dir: string,
 	feat: Features,
 	input: string | VersionJson,
-	ids: string[]
+	ids: string[],
 ): Promise<Version> {
 	if (typeof input === 'string') {
-		const parent = await cacheVersion(dir, input);
+		const parent = await resolveVersion(dir, input);
 		return await compileVersion(dir, feat, parent, [...ids]);
 	}
 
 	const json: VersionJson = input;
 	if (!json.id) throw new Error('expected property id');
-	if (ids.includes(json.id))
+	if (ids.includes(json.id)) {
 		throw new Error(`inheritance loop: ${[...ids, json.id]}`);
+	}
 
 	function mergeLibraries(version: Version) {
 		const additions: Library[] = [];
@@ -239,7 +244,7 @@ async function compileVersion(
 				version.jvmArgs.push(arg);
 			} else if (allowed(arg.rules, feat)) {
 				version.jvmArgs.push(
-					...(Array.isArray(arg.value) ? arg.value : [arg.value])
+					...(Array.isArray(arg.value) ? arg.value : [arg.value]),
 				);
 			}
 		}
@@ -248,7 +253,7 @@ async function compileVersion(
 				version.gameArgs.push(arg);
 			} else if (allowed(arg.rules, feat)) {
 				version.gameArgs.push(
-					...(Array.isArray(arg.value) ? arg.value : [arg.value])
+					...(Array.isArray(arg.value) ? arg.value : [arg.value]),
 				);
 			}
 		}
@@ -268,7 +273,7 @@ async function compileVersion(
 	}
 
 	if (json.inheritsFrom) {
-		const parent = await cacheVersion(dir, json.inheritsFrom);
+		const parent = await resolveVersion(dir, json.inheritsFrom);
 		const version = await compileVersion(dir, feat, parent, [...ids, json.id]);
 
 		// version.id = json.id ?? version.id;
@@ -323,9 +328,10 @@ async function compileVersion(
 			Object.entries(index.objects).map(([name, { hash, size }]) => {
 				const prefix = hash.slice(0, 2);
 				const path = join(dir, 'assets', `objects`, prefix, hash);
-				const url = `https://resources.download.minecraft.net/${prefix}/${hash}`;
+				const url =
+					`https://resources.download.minecraft.net/${prefix}/${hash}`;
 				return [name, { sha1: hash, size, path, url }];
-			})
+			}),
 		);
 
 		// Snap 16 to 17 for LTS status.
@@ -363,7 +369,7 @@ async function compileVersion(
 				matches: await findJavaForMinecraft(
 					join(dir, 'runtime'),
 					json.javaVersion?.component ?? 'jre-legacy',
-					javaVersion
+					javaVersion,
 				),
 			},
 			type: json.type,
@@ -381,13 +387,14 @@ async function compileVersion(
 				'-Dminecraft.launcher.brand=${launcher_name}',
 				'-Dminecraft.launcher.version=${launcher_version}',
 				'-cp',
-				'${classpath}'
+				'${classpath}',
 			);
 		}
 
 		if (version.gameArgs.length === 0) {
-			if (!json.minecraftArguments)
+			if (!json.minecraftArguments) {
 				throw new Error(`Expected property minecraftArguments`);
+			}
 			version.gameArgs.push(...json.minecraftArguments.split(' '));
 		}
 
@@ -395,22 +402,18 @@ async function compileVersion(
 	}
 }
 
-/**
- *
- *
- *
- *
- *
- *
- *
- *
- */
-export async function inspect(id: string, auth?: AuthState, profile?: Profile) {
+/** */
+export async function inspect(flags: {}, auth?: AuthState, profile?: Profile) {
 	const feat: Features = {};
 	const cache = getMinecraftFolder();
-	const version = await compileVersion(cache, feat, id, []);
+
+	const _config = readJson<unknown>('axolotl.json');
+
+	// TODO: implement version from flags and from config file
+	const version = await compileVersion(cache, feat, 'release', []);
 
 	// Default official launcher arguments as of Nov 2021
+	// TODO: G1GC and VM options are the default in Zulu. Experiment with this.
 	const customArgs = [
 		'-Xmx2G',
 		'-XX:+UnlockExperimentalVMOptions',
@@ -581,7 +584,7 @@ export type LaunchParams = {
 export async function play(
 	version: Version,
 	params: LaunchParams,
-	customArgs: string[]
+	customArgs: string[],
 ) {
 	if (version.paths.resources) {
 		for (const [name, { path }] of version.assets.objects) {

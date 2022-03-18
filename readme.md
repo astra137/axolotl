@@ -21,18 +21,28 @@ I might try to make it nice someday, if the mood strikes, or if anyone asks for 
 
 ## Usage
 
+For convenience, install `cli.ts` with Deno and launch with `axolotl`.
+
 ```sh
-axolotl 1.18.1
+deno install --config deno.json --allow-all --name axolotl cli.ts
 ```
 
-Authenticates, downloads, and launches some version of the game.
+On Windows, another method to launch is creating a shortcut to the `axolotl.cmd` created by Deno. Change the `Start in` property to be empty.
 
-It tries to share the official launcher's folder (.minecraft) for assets/libraries/versions. Saves, session, options, etc. are saved in the current working directory.
+To prevent accidents, `axolotl.json` must exist in the current directory.
+
+```sh
+echo {} > axolotl.json
+```
+
+The current directory will contain the game session, options, and worlds.
+
+Libraries and assets are shared with the official launcher (best effort).
 
 ## Security
 
 ### [CVE-2021-44228](https://nvd.nist.gov/vuln/detail/CVE-2021-44228)
 
-CVE-2021-44228 is mitigated in axolotl via Mojang's upstream mitigation, a change to the logging configuration XML they distribute as a part of the launcher_manifest_v2.json chain. Running axolotl as normal will detect the out-of-date client-1.12.xml and replace it.
+CVE-2021-44228 is mitigated upstream. This project uses the log4j version and configuration that Mojang distributes via launchermeta.mojang.com.
 
 If you play Minecraft with a custom launcher or run a server, you should go read http://redsto.ne/java if you don't like data loss, ransomware, or being doxxed.
